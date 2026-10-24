@@ -1,0 +1,6 @@
+{
+  "name": "Meridian Enterprise Asset Ledger",
+  "description": "Centralized multi-business fixed asset management, automated depreciation engine, physical verification, intercompany transfers, and financial reconciliation platform.",
+  "requestFramePermissions": ["camera"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

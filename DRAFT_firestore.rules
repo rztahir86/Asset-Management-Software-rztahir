@@ -1,0 +1,492 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Pillar 0: Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Global Primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isVerifiedUser() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function incoming() {
+      return request.resource.data;
+    }
+
+    function existing() {
+      return resource.data;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() >= 1 && id.size() <= 128 && id.matches('^[a-zA-Z0-9_-]+$');
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isAdmin() {
+      return isVerifiedUser() && (
+        request.auth.token.email == 'ztahir86@gmail.com' ||
+        exists(/databases/$(database)/documents/admins/$(request.auth.uid))
+      );
+    }
+
+    function isValidUserProfile(data, userId) {
+      return data.keys().hasAll(['uid', 'displayName', 'role', 'assignedBusinessId', 'status', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['uid', 'displayName', 'role', 'assignedBusinessId', 'assignedRegionId', 'assignedBranchId', 'department', 'status', 'createdAt', 'updatedAt']) &&
+        data.uid is string && data.uid == userId && data.uid.size() <= 128 &&
+        data.displayName is string && data.displayName.size() >= 1 && data.displayName.size() <= 120 &&
+        data.role is string && data.role in ['SUPER_ADMIN', 'GROUP_FINANCE_MANAGER', 'BUSINESS_ADMIN', 'REGIONAL_MANAGER', 'BRANCH_ASSET_OFFICER', 'ACCOUNTANT', 'AUDITOR', 'READ_ONLY_EXECUTIVE'] &&
+        data.assignedBusinessId is string && data.assignedBusinessId.size() <= 128 &&
+        data.status is string && data.status in ['ACTIVE', 'SUSPENDED'] &&
+        data.createdAt is string && data.createdAt.size() <= 64 &&
+        data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    function isValidUserPrivateInfo(data, userId) {
+      return data.keys().hasAll(['uid', 'email', 'createdAt']) &&
+        data.keys().hasOnly(['uid', 'email', 'createdAt']) &&
+        data.uid is string && data.uid == userId && data.uid.size() <= 128 &&
+        data.email is string && data.email.size() >= 3 && data.email.size() <= 254 &&
+        data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    function isValidBusiness(data, docId) {
+      return data.keys().hasAll(['id', 'code', 'name', 'legalName', 'baseCurrency', 'fiscalYearStartMonth', 'country', 'status', 'ownerUid', 'createdAt', 'updatedAt']) &&
+        data.keys().hasOnly(['id', 'code', 'name', 'legalName', 'taxId', 'baseCurrency', 'fiscalYearStartMonth', 'country', 'status', 'ownerUid', 'createdAt', 'updatedAt']) &&
+        data.id is string && data.id == docId && data.id.size() <= 128 &&
+        data.code is string && data.code.size() >= 1 && data.code.size() <= 32 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 160 &&
+        data.legalName is string && data.legalName.size() <= 200 &&
+        data.baseCurrency is string && data.baseCurrency.size() <= 10 &&
+        data.fiscalYearStartMonth is number && data.fiscalYearStartMonth >= 1 && data.fiscalYearStartMonth <= 12 &&
+        data.country is string && data.country.size() <= 80 &&
+        data.status is string && data.status in ['ACTIVE', 'INACTIVE'] &&
+        data.ownerUid is string && data.ownerUid == request.auth.uid && data.ownerUid.size() <= 128 &&
+        data.createdAt is string && data.createdAt.size() <= 64 &&
+        data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    function isValidRegion(data, docId) {
+      return data.keys().hasAll(['id', 'businessId', 'code', 'name', 'zoneManager', 'country', 'status', 'ownerUid', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'businessId', 'code', 'name', 'zoneManager', 'country', 'status', 'ownerUid', 'createdAt']) &&
+        data.id is string && data.id == docId && data.id.size() <= 128 &&
+        data.businessId is string && isValidId(data.businessId) &&
+        data.code is string && data.code.size() <= 32 &&
+        data.name is string && data.name.size() <= 160 &&
+        data.zoneManager is string && data.zoneManager.size() <= 120 &&
+        data.country is string && data.country.size() <= 80 &&
+        data.status is string && data.status in ['ACTIVE', 'INACTIVE'] &&
+        data.ownerUid is string && data.ownerUid == request.auth.uid && data.ownerUid.size() <= 128 &&
+        data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    function isValidBranch(data, docId) {
+      return data.keys().hasAll(['id', 'businessId', 'regionId', 'code', 'name', 'type', 'address', 'costCenterCode', 'custodianLead', 'status', 'ownerUid', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'businessId', 'regionId', 'code', 'name', 'type', 'address', 'costCenterCode', 'custodianLead', 'status', 'ownerUid', 'createdAt']) &&
+        data.id is string && data.id == docId && data.id.size() <= 128 &&
+        data.businessId is string && isValidId(data.businessId) &&
+        data.regionId is string && isValidId(data.regionId) &&
+        data.code is string && data.code.size() <= 32 &&
+        data.name is string && data.name.size() <= 160 &&
+        data.type is string && data.type in ['HEAD_OFFICE', 'REGIONAL_OFFICE', 'BRANCH', 'WAREHOUSE', 'PLANT', 'POULTRY_FARM', 'HATCHERY', 'FEED_MILL'] &&
+        data.address is string && data.address.size() <= 300 &&
+        data.costCenterCode is string && data.costCenterCode.size() <= 40 &&
+        data.custodianLead is string && data.custodianLead.size() <= 120 &&
+        data.status is string && data.status in ['ACTIVE', 'INACTIVE'] &&
+        data.ownerUid is string && data.ownerUid == request.auth.uid && data.ownerUid.size() <= 128 &&
+        data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    function isValidCategory(data, docId) {
+      return data.keys().hasAll(['id', 'code', 'name', 'parentCategory', 'defaultDepreciationMethod', 'defaultUsefulLifeMonths', 'defaultResidualRatePct', 'glAssetAccount', 'glAccumDepAccount', 'glDepExpenseAccount', 'taxDepreciationRatePct', 'status', 'ownerUid', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'code', 'name', 'parentCategory', 'defaultDepreciationMethod', 'defaultUsefulLifeMonths', 'defaultResidualRatePct', 'glAssetAccount', 'glAccumDepAccount', 'glDepExpenseAccount', 'taxDepreciationRatePct', 'status', 'ownerUid', 'createdAt']) &&
+        data.id is string && data.id == docId && data.id.size() <= 128 &&
+        data.code is string && data.code.size() <= 32 &&
+        data.name is string && data.name.size() <= 160 &&
+        data.parentCategory is string && data.parentCategory.size() <= 120 &&
+        data.defaultDepreciationMethod is string && data.defaultDepreciationMethod in ['STRAIGHT_LINE', 'REDUCING_BALANCE', 'DOUBLE_DECLINING', 'UNITS_OF_PRODUCTION'] &&
+        data.defaultUsefulLifeMonths is number && data.defaultUsefulLifeMonths >= 1 && data.defaultUsefulLifeMonths <= 1200 &&
+        data.defaultResidualRatePct is number && data.defaultResidualRatePct >= 0 && data.defaultResidualRatePct <= 100 &&
+        data.glAssetAccount is string && data.glAssetAccount.size() <= 40 &&
+        data.glAccumDepAccount is string && data.glAccumDepAccount.size() <= 40 &&
+        data.glDepExpenseAccount is string && data.glDepExpenseAccount.size() <= 40 &&
+        data.taxDepreciationRatePct is number && data.taxDepreciationRatePct >= 0 && data.taxDepreciationRatePct <= 100 &&
+        data.status is string && data.status in ['ACTIVE', 'INACTIVE'] &&
+        data.ownerUid is string && data.ownerUid == request.auth.uid && data.ownerUid.size() <= 128 &&
+        data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    function isValidAssetCore(data, docId) {
+      return data.id is string && data.id == docId && data.id.size() <= 128 &&
+        data.assetTag is string && data.assetTag.size() >= 1 && data.assetTag.size() <= 64 &&
+        data.qrPayload is string && data.qrPayload.size() <= 500 &&
+        data.barcodeValue is string && data.barcodeValue.size() <= 64 &&
+        data.name is string && data.name.size() >= 1 && data.name.size() <= 200 &&
+        data.description is string && data.description.size() <= 1000 &&
+        data.categoryId is string && isValidId(data.categoryId) &&
+        data.businessId is string && isValidId(data.businessId) &&
+        data.regionId is string && isValidId(data.regionId) &&
+        data.branchId is string && isValidId(data.branchId) &&
+        data.department is string && data.department.size() <= 120 &&
+        data.costCenter is string && data.costCenter.size() <= 64 &&
+        data.custodianName is string && data.custodianName.size() <= 120 &&
+        data.ownerUid is string && data.ownerUid == request.auth.uid && data.ownerUid.size() <= 128 &&
+        data.createdAt is string && data.createdAt.size() <= 64 &&
+        data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    function isValidAssetFinancials(data) {
+      return data.originalCostCents is number && data.originalCostCents >= 0 &&
+        data.currency is string && data.currency.size() <= 10 &&
+        data.exchangeRateScaled is number && data.exchangeRateScaled > 0 &&
+        data.residualValueCents is number && data.residualValueCents >= 0 && data.residualValueCents <= data.originalCostCents &&
+        data.usefulLifeMonths is number && data.usefulLifeMonths >= 1 && data.usefulLifeMonths <= 1200 &&
+        data.depreciationMethod is string && data.depreciationMethod in ['STRAIGHT_LINE', 'REDUCING_BALANCE', 'DOUBLE_DECLINING', 'UNITS_OF_PRODUCTION'] &&
+        data.accumulatedDepreciationCents is number && data.accumulatedDepreciationCents >= 0 &&
+        data.netBookValueCents is number && data.netBookValueCents >= 0 &&
+        data.condition is string && data.condition in ['EXCELLENT', 'GOOD', 'FAIR', 'DAMAGED', 'SCRAP'] &&
+        data.operationalStatus is string && data.operationalStatus in ['ACTIVE', 'UNDER_MAINTENANCE', 'IN_TRANSIT', 'AWAITING_APPROVAL', 'FULLY_DEPRECIATED', 'DISPOSED'] &&
+        data.verificationStatus is string && data.verificationStatus in ['VERIFIED', 'UNVERIFIED', 'MISSING', 'DAMAGED', 'RELOCATED'] &&
+        data.isDemoData is bool &&
+        data.remarks is string && data.remarks.size() <= 1000;
+    }
+
+    function isValidAsset(data, docId) {
+      return data.size() >= 25 && data.size() <= 50 &&
+        isValidAssetCore(data, docId) &&
+        isValidAssetFinancials(data);
+    }
+
+    function isValidTransfer(data, docId) {
+      return data.size() >= 15 && data.size() <= 30 &&
+        data.id is string && data.id == docId && data.id.size() <= 128 &&
+        data.transferNumber is string && data.transferNumber.size() <= 64 &&
+        data.assetId is string && isValidId(data.assetId) &&
+        data.assetTag is string && data.assetTag.size() <= 64 &&
+        data.assetName is string && data.assetName.size() <= 200 &&
+        data.fromBusinessId is string && data.fromBusinessId.size() <= 128 &&
+        data.toBusinessId is string && data.toBusinessId.size() <= 128 &&
+        data.transferDate is string && data.transferDate.size() <= 32 &&
+        data.reason is string && data.reason.size() <= 500 &&
+        data.isIntercompany is bool &&
+        data.transferNetBookValueCents is number && data.transferNetBookValueCents >= 0 &&
+        data.status is string && data.status in ['DRAFT', 'PENDING_APPROVAL', 'APPROVED', 'IN_TRANSIT', 'RECEIVED', 'REJECTED'] &&
+        data.ownerUid is string && data.ownerUid == request.auth.uid && data.ownerUid.size() <= 128 &&
+        data.createdAt is string && data.createdAt.size() <= 64 &&
+        data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    function isValidVerification(data, docId) {
+      return data.size() >= 12 && data.size() <= 25 &&
+        data.id is string && data.id == docId && data.id.size() <= 128 &&
+        data.sessionCode is string && data.sessionCode.size() <= 64 &&
+        data.title is string && data.title.size() <= 200 &&
+        data.businessId is string && data.businessId.size() <= 128 &&
+        data.branchId is string && data.branchId.size() <= 128 &&
+        data.auditorName is string && data.auditorName.size() <= 120 &&
+        data.totalExpected is number && data.totalExpected >= 0 &&
+        data.verifiedCount is number && data.verifiedCount >= 0 &&
+        data.missingCount is number && data.missingCount >= 0 &&
+        data.status is string && data.status in ['OPEN', 'IN_PROGRESS', 'RECONCILED', 'CLOSED'] &&
+        data.notes is string && data.notes.size() <= 1000 &&
+        data.ownerUid is string && data.ownerUid == request.auth.uid && data.ownerUid.size() <= 128 &&
+        data.createdAt is string && data.createdAt.size() <= 64 &&
+        data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    function isValidDepreciationRun(data, docId) {
+      return data.size() >= 14 && data.size() <= 25 &&
+        data.id is string && data.id == docId && data.id.size() <= 128 &&
+        data.runCode is string && data.runCode.size() <= 64 &&
+        data.fiscalYear is number && data.fiscalYear >= 2000 && data.fiscalYear <= 2100 &&
+        data.periodMonth is number && data.periodMonth >= 1 && data.periodMonth <= 12 &&
+        data.periodLabel is string && data.periodLabel.size() <= 64 &&
+        data.businessId is string && data.businessId.size() <= 128 &&
+        data.assetCount is number && data.assetCount >= 0 &&
+        data.periodDepreciationCents is number && data.periodDepreciationCents >= 0 &&
+        data.closingNetBookValueCents is number && data.closingNetBookValueCents >= 0 &&
+        data.status is string && data.status in ['DRAFT', 'REVIEWED', 'APPROVED', 'POSTED'] &&
+        data.ownerUid is string && data.ownerUid == request.auth.uid && data.ownerUid.size() <= 128 &&
+        data.createdAt is string && data.createdAt.size() <= 64 &&
+        data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    function isValidMaintenance(data, docId) {
+      return data.size() >= 12 && data.size() <= 20 &&
+        data.id is string && data.id == docId && data.id.size() <= 128 &&
+        data.ticketNumber is string && data.ticketNumber.size() <= 64 &&
+        data.assetId is string && isValidId(data.assetId) &&
+        data.assetTag is string && data.assetTag.size() <= 64 &&
+        data.assetName is string && data.assetName.size() <= 200 &&
+        data.businessId is string && data.businessId.size() <= 128 &&
+        data.maintenanceType is string && data.maintenanceType in ['PREVENTIVE', 'CORRECTIVE', 'OVERHAUL', 'INSPECTION'] &&
+        data.vendorName is string && data.vendorName.size() <= 160 &&
+        data.costCents is number && data.costCents >= 0 &&
+        data.isCapitalImprovement is bool &&
+        data.status is string && data.status in ['SCHEDULED', 'IN_PROGRESS', 'COMPLETED', 'CANCELLED'] &&
+        data.notes is string && data.notes.size() <= 1000 &&
+        data.ownerUid is string && data.ownerUid == request.auth.uid && data.ownerUid.size() <= 128 &&
+        data.createdAt is string && data.createdAt.size() <= 64 &&
+        data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    function isValidDisposal(data, docId) {
+      return data.size() >= 14 && data.size() <= 25 &&
+        data.id is string && data.id == docId && data.id.size() <= 128 &&
+        data.disposalNumber is string && data.disposalNumber.size() <= 64 &&
+        data.assetId is string && isValidId(data.assetId) &&
+        data.assetTag is string && data.assetTag.size() <= 64 &&
+        data.assetName is string && data.assetName.size() <= 200 &&
+        data.businessId is string && data.businessId.size() <= 128 &&
+        data.disposalMethod is string && data.disposalMethod in ['SALE', 'SCRAP', 'DONATION', 'WRITE_OFF', 'TRADE_IN'] &&
+        data.originalCostCents is number && data.originalCostCents >= 0 &&
+        data.proceedsCents is number && data.proceedsCents >= 0 &&
+        data.gainLossCents is number &&
+        data.reason is string && data.reason.size() <= 500 &&
+        data.status is string && data.status in ['PENDING_APPROVAL', 'APPROVED', 'EXECUTED', 'REJECTED'] &&
+        data.ownerUid is string && data.ownerUid == request.auth.uid && data.ownerUid.size() <= 128 &&
+        data.createdAt is string && data.createdAt.size() <= 64 &&
+        data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    function isValidJournal(data, docId) {
+      return data.size() >= 12 && data.size() <= 22 &&
+        data.id is string && data.id == docId && data.id.size() <= 128 &&
+        data.journalNumber is string && data.journalNumber.size() <= 64 &&
+        data.postingDate is string && data.postingDate.size() <= 32 &&
+        data.fiscalPeriod is string && data.fiscalPeriod.size() <= 32 &&
+        data.businessId is string && data.businessId.size() <= 128 &&
+        data.sourceModule is string && data.sourceModule in ['DEPRECIATION', 'ACQUISITION', 'TRANSFER', 'DISPOSAL', 'REVALUATION'] &&
+        data.debitAccount is string && data.debitAccount.size() <= 64 &&
+        data.creditAccount is string && data.creditAccount.size() <= 64 &&
+        data.amountCents is number && data.amountCents >= 0 &&
+        data.description is string && data.description.size() <= 500 &&
+        data.glReconciled is bool &&
+        data.status is string && data.status in ['DRAFT', 'APPROVED', 'EXPORTED'] &&
+        data.ownerUid is string && data.ownerUid == request.auth.uid && data.ownerUid.size() <= 128 &&
+        data.createdAt is string && data.createdAt.size() <= 64 &&
+        data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    function isValidApproval(data, docId) {
+      return data.size() >= 12 && data.size() <= 20 &&
+        data.id is string && data.id == docId && data.id.size() <= 128 &&
+        data.requestCode is string && data.requestCode.size() <= 64 &&
+        data.workflowType is string && data.workflowType in ['ASSET_CAPITALIZATION', 'INTERCOMPANY_TRANSFER', 'DEPRECIATION_POSTING', 'ASSET_DISPOSAL', 'VALUATION_ADJUSTMENT'] &&
+        data.targetEntityId is string && data.targetEntityId.size() <= 128 &&
+        data.targetLabel is string && data.targetLabel.size() <= 200 &&
+        data.businessId is string && data.businessId.size() <= 128 &&
+        data.amountCents is number && data.amountCents >= 0 &&
+        data.status is string && data.status in ['PENDING', 'APPROVED', 'REJECTED'] &&
+        data.decisionNotes is string && data.decisionNotes.size() <= 500 &&
+        data.ownerUid is string && data.ownerUid == request.auth.uid && data.ownerUid.size() <= 128 &&
+        data.createdAt is string && data.createdAt.size() <= 64 &&
+        data.updatedAt is string && data.updatedAt.size() <= 64;
+    }
+
+    function isValidAuditLog(data, docId) {
+      return data.keys().hasAll(['id', 'eventTimestamp', 'actorEmail', 'actorRole', 'module', 'action', 'entityId', 'entityReference', 'summary', 'ownerUid', 'createdAt']) &&
+        data.keys().hasOnly(['id', 'eventTimestamp', 'actorEmail', 'actorRole', 'module', 'action', 'entityId', 'entityReference', 'summary', 'ownerUid', 'createdAt']) &&
+        data.id is string && data.id == docId && data.id.size() <= 128 &&
+        data.eventTimestamp is string && data.eventTimestamp.size() <= 64 &&
+        data.actorEmail is string && data.actorEmail.size() <= 254 &&
+        data.actorRole is string && data.actorRole.size() <= 64 &&
+        data.module is string && data.module.size() <= 64 &&
+        data.action is string && data.action.size() <= 64 &&
+        data.entityId is string && data.entityId.size() <= 128 &&
+        data.entityReference is string && data.entityReference.size() <= 120 &&
+        data.summary is string && data.summary.size() <= 500 &&
+        data.ownerUid is string && data.ownerUid == request.auth.uid && data.ownerUid.size() <= 128 &&
+        data.createdAt is string && data.createdAt.size() <= 64;
+    }
+
+    // Match Blocks
+    match /users/{userId} {
+      allow get: if isValidId(userId) && (isOwner(userId) || isAdmin());
+      allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+      allow create: if isVerifiedUser() && isValidId(userId) && isOwner(userId) && isValidUserProfile(incoming(), userId) && (incoming().role != 'SUPER_ADMIN' || isAdmin());
+      allow update: if isVerifiedUser() && isValidId(userId) && isValidUserProfile(incoming(), userId) && incoming().createdAt == existing().createdAt && incoming().uid == existing().uid && (
+        isAdmin() ||
+        (isOwner(userId) && incoming().role == existing().role && incoming().diff(existing()).affectedKeys().hasOnly(['displayName', 'assignedBusinessId', 'assignedRegionId', 'assignedBranchId', 'department', 'updatedAt']))
+      );
+      allow delete: if isAdmin() && isValidId(userId);
+
+      match /private/{docId} {
+        allow get: if isValidId(userId) && isValidId(docId) && (isOwner(userId) || isAdmin());
+        allow list: if isSignedIn() && (resource.data.uid == request.auth.uid || isAdmin());
+        allow create: if isVerifiedUser() && isValidId(userId) && isValidId(docId) && isOwner(userId) && isValidUserPrivateInfo(incoming(), userId);
+        allow update: if isVerifiedUser() && isValidId(userId) && isValidId(docId) && isOwner(userId) && isValidUserPrivateInfo(incoming(), userId) && incoming().createdAt == existing().createdAt && incoming().uid == existing().uid && incoming().diff(existing()).affectedKeys().hasOnly(['email']);
+        allow delete: if isAdmin() && isValidId(userId) && isValidId(docId);
+      }
+    }
+
+    match /businesses/{businessId} {
+      allow get: if isSignedIn() && isValidId(businessId) && (existing().ownerUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if isVerifiedUser() && isValidId(businessId) && isValidBusiness(incoming(), businessId);
+      allow update: if isVerifiedUser() && isValidId(businessId) && isValidBusiness(incoming(), businessId) && incoming().createdAt == existing().createdAt && incoming().ownerUid == existing().ownerUid && (
+        isAdmin() ||
+        (existing().ownerUid == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['code', 'name', 'legalName', 'taxId', 'baseCurrency', 'fiscalYearStartMonth', 'country', 'status', 'updatedAt']))
+      );
+      allow delete: if isVerifiedUser() && isValidId(businessId) && (existing().ownerUid == request.auth.uid || isAdmin());
+    }
+
+    match /regions/{regionId} {
+      allow get: if isSignedIn() && isValidId(regionId) && (existing().ownerUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if isVerifiedUser() && isValidId(regionId) && isValidRegion(incoming(), regionId) && exists(/databases/$(database)/documents/businesses/$(incoming().businessId));
+      allow update: if isVerifiedUser() && isValidId(regionId) && isValidRegion(incoming(), regionId) && incoming().createdAt == existing().createdAt && incoming().ownerUid == existing().ownerUid && (
+        isAdmin() ||
+        (existing().ownerUid == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'zoneManager', 'country', 'status']))
+      );
+      allow delete: if isVerifiedUser() && isValidId(regionId) && (existing().ownerUid == request.auth.uid || isAdmin());
+    }
+
+    match /branches/{branchId} {
+      allow get: if isSignedIn() && isValidId(branchId) && (existing().ownerUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if isVerifiedUser() && isValidId(branchId) && isValidBranch(incoming(), branchId) && exists(/databases/$(database)/documents/businesses/$(incoming().businessId)) && exists(/databases/$(database)/documents/regions/$(incoming().regionId));
+      allow update: if isVerifiedUser() && isValidId(branchId) && isValidBranch(incoming(), branchId) && incoming().createdAt == existing().createdAt && incoming().ownerUid == existing().ownerUid && (
+        isAdmin() ||
+        (existing().ownerUid == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'type', 'address', 'costCenterCode', 'custodianLead', 'status']))
+      );
+      allow delete: if isVerifiedUser() && isValidId(branchId) && (existing().ownerUid == request.auth.uid || isAdmin());
+    }
+
+    match /categories/{categoryId} {
+      allow get: if isSignedIn() && isValidId(categoryId) && (existing().ownerUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if isVerifiedUser() && isValidId(categoryId) && isValidCategory(incoming(), categoryId);
+      allow update: if isVerifiedUser() && isValidId(categoryId) && isValidCategory(incoming(), categoryId) && incoming().createdAt == existing().createdAt && incoming().ownerUid == existing().ownerUid && (
+        isAdmin() ||
+        (existing().ownerUid == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly(['name', 'defaultDepreciationMethod', 'defaultUsefulLifeMonths', 'defaultResidualRatePct', 'glAssetAccount', 'glAccumDepAccount', 'glDepExpenseAccount', 'taxDepreciationRatePct', 'status']))
+      );
+      allow delete: if isVerifiedUser() && isValidId(categoryId) && (existing().ownerUid == request.auth.uid || isAdmin());
+    }
+
+    match /assets/{assetId} {
+      allow get: if isSignedIn() && isValidId(assetId) && (existing().ownerUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if isVerifiedUser() && isValidId(assetId) && isValidAsset(incoming(), assetId) && exists(/databases/$(database)/documents/businesses/$(incoming().businessId)) && exists(/databases/$(database)/documents/categories/$(incoming().categoryId));
+      allow update: if isVerifiedUser() && isValidId(assetId) && isValidAsset(incoming(), assetId) && incoming().createdAt == existing().createdAt && incoming().ownerUid == existing().ownerUid && (
+        isAdmin() ||
+        (existing().ownerUid == request.auth.uid && incoming().diff(existing()).affectedKeys().hasOnly([
+          'name', 'description', 'categoryId', 'subcategory', 'businessId', 'regionId', 'branchId',
+          'department', 'costCenter', 'physicalLocation', 'custodianName', 'custodianEmployeeId',
+          'accumulatedDepreciationCents', 'impairmentCents', 'revaluationReserveCents',
+          'netBookValueCents', 'taxBookValueCents', 'unitsProducedToDate', 'condition',
+          'operationalStatus', 'warrantyExpiryDate', 'insurancePolicyNo', 'insuranceExpiryDate',
+          'insuredValueCents', 'maintenanceSchedule', 'verificationStatus', 'lastVerifiedDate',
+          'remarks', 'updatedAt'
+        ]))
+      );
+      allow delete: if isVerifiedUser() && isValidId(assetId) && (existing().ownerUid == request.auth.uid || isAdmin());
+    }
+
+    match /transfers/{transferId} {
+      allow get: if isSignedIn() && isValidId(transferId) && (existing().ownerUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if isVerifiedUser() && isValidId(transferId) && isValidTransfer(incoming(), transferId) && exists(/databases/$(database)/documents/assets/$(incoming().assetId));
+      allow update: if isVerifiedUser() && isValidId(transferId) && isValidTransfer(incoming(), transferId) && incoming().createdAt == existing().createdAt && incoming().ownerUid == existing().ownerUid && (
+        isAdmin() ||
+        (existing().ownerUid == request.auth.uid && existing().status != 'RECEIVED' && existing().status != 'REJECTED' && incoming().diff(existing()).affectedKeys().hasOnly([
+          'status', 'approvedByName', 'dispatchConfirmedAt', 'receivedConfirmedAt', 'reason', 'updatedAt'
+        ]))
+      );
+      allow delete: if isVerifiedUser() && isValidId(transferId) && (existing().ownerUid == request.auth.uid || isAdmin());
+    }
+
+    match /verifications/{sessionId} {
+      allow get: if isSignedIn() && isValidId(sessionId) && (existing().ownerUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if isVerifiedUser() && isValidId(sessionId) && isValidVerification(incoming(), sessionId);
+      allow update: if isVerifiedUser() && isValidId(sessionId) && isValidVerification(incoming(), sessionId) && incoming().createdAt == existing().createdAt && incoming().ownerUid == existing().ownerUid && (
+        isAdmin() ||
+        (existing().ownerUid == request.auth.uid && existing().status != 'CLOSED' && incoming().diff(existing()).affectedKeys().hasOnly([
+          'verifiedCount', 'missingCount', 'damagedCount', 'relocatedCount', 'unregisteredCount', 'status', 'notes', 'updatedAt'
+        ]))
+      );
+      allow delete: if isVerifiedUser() && isValidId(sessionId) && (existing().ownerUid == request.auth.uid || isAdmin());
+    }
+
+    match /depreciationRuns/{runId} {
+      allow get: if isSignedIn() && isValidId(runId) && (existing().ownerUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if isVerifiedUser() && isValidId(runId) && isValidDepreciationRun(incoming(), runId);
+      allow update: if isVerifiedUser() && isValidId(runId) && isValidDepreciationRun(incoming(), runId) && incoming().createdAt == existing().createdAt && incoming().ownerUid == existing().ownerUid && (
+        isAdmin() ||
+        (existing().ownerUid == request.auth.uid && existing().status != 'POSTED' && incoming().diff(existing()).affectedKeys().hasOnly([
+          'status', 'reviewedBy', 'approvedBy', 'postedAt', 'updatedAt'
+        ]))
+      );
+      allow delete: if isVerifiedUser() && isValidId(runId) && (existing().ownerUid == request.auth.uid || isAdmin());
+    }
+
+    match /maintenance/{maintenanceId} {
+      allow get: if isSignedIn() && isValidId(maintenanceId) && (existing().ownerUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if isVerifiedUser() && isValidId(maintenanceId) && isValidMaintenance(incoming(), maintenanceId) && exists(/databases/$(database)/documents/assets/$(incoming().assetId));
+      allow update: if isVerifiedUser() && isValidId(maintenanceId) && isValidMaintenance(incoming(), maintenanceId) && incoming().createdAt == existing().createdAt && incoming().ownerUid == existing().ownerUid && (
+        isAdmin() ||
+        (existing().ownerUid == request.auth.uid && existing().status != 'COMPLETED' && existing().status != 'CANCELLED' && incoming().diff(existing()).affectedKeys().hasOnly([
+          'completedDate', 'costCents', 'status', 'notes', 'updatedAt'
+        ]))
+      );
+      allow delete: if isVerifiedUser() && isValidId(maintenanceId) && (existing().ownerUid == request.auth.uid || isAdmin());
+    }
+
+    match /disposals/{disposalId} {
+      allow get: if isSignedIn() && isValidId(disposalId) && (existing().ownerUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if isVerifiedUser() && isValidId(disposalId) && isValidDisposal(incoming(), disposalId) && exists(/databases/$(database)/documents/assets/$(incoming().assetId));
+      allow update: if isVerifiedUser() && isValidId(disposalId) && isValidDisposal(incoming(), disposalId) && incoming().createdAt == existing().createdAt && incoming().ownerUid == existing().ownerUid && (
+        isAdmin() ||
+        (existing().ownerUid == request.auth.uid && existing().status != 'EXECUTED' && existing().status != 'REJECTED' && incoming().diff(existing()).affectedKeys().hasOnly([
+          'status', 'approvedBy', 'updatedAt'
+        ]))
+      );
+      allow delete: if isVerifiedUser() && isValidId(disposalId) && (existing().ownerUid == request.auth.uid || isAdmin());
+    }
+
+    match /journals/{journalId} {
+      allow get: if isSignedIn() && isValidId(journalId) && (existing().ownerUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if isVerifiedUser() && isValidId(journalId) && isValidJournal(incoming(), journalId);
+      allow update: if isVerifiedUser() && isValidId(journalId) && isValidJournal(incoming(), journalId) && incoming().createdAt == existing().createdAt && incoming().ownerUid == existing().ownerUid && (
+        isAdmin() ||
+        (existing().ownerUid == request.auth.uid && existing().status != 'EXPORTED' && incoming().diff(existing()).affectedKeys().hasOnly([
+          'glReconciled', 'status', 'updatedAt'
+        ]))
+      );
+      allow delete: if isVerifiedUser() && isValidId(journalId) && (existing().ownerUid == request.auth.uid || isAdmin());
+    }
+
+    match /approvals/{approvalId} {
+      allow get: if isSignedIn() && isValidId(approvalId) && (existing().ownerUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if isVerifiedUser() && isValidId(approvalId) && isValidApproval(incoming(), approvalId);
+      allow update: if isVerifiedUser() && isValidId(approvalId) && isValidApproval(incoming(), approvalId) && incoming().createdAt == existing().createdAt && incoming().ownerUid == existing().ownerUid && (
+        isAdmin() ||
+        (existing().ownerUid == request.auth.uid && existing().status == 'PENDING' && incoming().diff(existing()).affectedKeys().hasOnly([
+          'currentStep', 'status', 'decisionNotes', 'updatedAt'
+        ]))
+      );
+      allow delete: if isVerifiedUser() && isValidId(approvalId) && (existing().ownerUid == request.auth.uid || isAdmin());
+    }
+
+    match /auditLogs/{logId} {
+      allow get: if isSignedIn() && isValidId(logId) && (existing().ownerUid == request.auth.uid || isAdmin());
+      allow list: if isSignedIn() && (resource.data.ownerUid == request.auth.uid || isAdmin());
+      allow create: if isVerifiedUser() && isValidId(logId) && isValidAuditLog(incoming(), logId);
+      allow update, delete: if false;
+    }
+  }
+}
